@@ -1,21 +1,21 @@
 ///|
-pub const PROTOCOL_VERSION : Byte = b'\x01'
+const PROTOCOL_VERSION : Byte = b'\x01'
 
 ///|
-pub const ABI_VERSION : UInt = 1U
+const ABI_VERSION : UInt = 1U
 
 ///|
-pub const HEADER_LEN : Int = 12
+const HEADER_LEN : Int = 12
 
 ///|
-pub const TOKEN_LEN : Int = 32
+const TOKEN_LEN : Int = 32
 
 ///|
-pub const DEFAULT_MAX_FRAME_SIZE : UInt = 16U * 1024U * 1024U
+const DEFAULT_MAX_FRAME_SIZE : UInt = 16U * 1024U * 1024U
 
 ///|
-#derive(Eq, @debug.Debug)
-pub(all) enum Op {
+#derive(Eq)
+priv enum Op {
   Hello
   Load
   Loaded
@@ -92,14 +92,21 @@ pub(all) suberror SidecarError {
 }
 
 ///|
+/// Platform and capability metadata reported by the sidecar server during
+/// handshake.
 #derive(Eq, @debug.Debug)
-pub struct HelloInfo {
-  token : Bytes
+pub struct ServerInfo {
   abi_version : UInt
   max_frame_size : UInt
   os : String
   arch : String
   lib_ext : String
+}
+
+///|
+priv struct HelloPayload {
+  token : Bytes
+  info : ServerInfo
 }
 
 ///|
@@ -201,8 +208,7 @@ fn decode_header(raw : BytesView) -> FrameHeader raise SidecarError {
 }
 
 ///|
-fn decode_hello(payload : BytesView) -> HelloInfo raise SidecarError {
-  // token(32) + abi_version(4) + max_frame_size(4) + 3 * len(2) = 46 min bytes
+fn decode_hello(payload : BytesView) -> HelloPayload raise SidecarError {
   if payload.length() < TOKEN_LEN + 14 {
     raise HandshakeFailed("HELLO payload too short")
   }
@@ -230,7 +236,7 @@ fn decode_hello(payload : BytesView) -> HelloInfo raise SidecarError {
   pos = next2
   let (lib_ext, _) = read_str(payload, pos)
 
-  { token, abi_version, max_frame_size, os, arch, lib_ext }
+  { token, info: { abi_version, max_frame_size, os, arch, lib_ext } }
 }
 
 ///|

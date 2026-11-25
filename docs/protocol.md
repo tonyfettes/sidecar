@@ -176,7 +176,7 @@ Downstream MoonBit libraries can reuse the same pipeline for their own native pl
 1. Cross-compile your C/Zig plugin into `<dist>/<platform>/<libname>` (e.g., `macos-aarch64/libmy_plugin.dylib`).
 2. Generate a MoonBit embedding file with:
    ```sh
-   python3 scripts/embed_server.py \
+   moon run --target native scripts/embed_server.mbtx -- \
      --dist-dir path/to/dist \
      --out embedded_plugin.generated.mbt \
      --map-name embedded_plugins \

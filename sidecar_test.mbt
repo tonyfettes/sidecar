@@ -1,6 +1,6 @@
 ///|
-fn example_plugin_path(hello : @sidecar.HelloInfo) -> String {
-  match hello.os {
+fn example_plugin_path(info : @sidecar.ServerInfo) -> String {
+  match info.os {
     "windows" => "server/zig-out/lib/echo_plugin.dll"
     "macos" => "server/zig-out/lib/libecho_plugin.dylib"
     _ => "server/zig-out/lib/libecho_plugin.so"
@@ -31,8 +31,8 @@ async test "sidecar echo, add_u32, error, unload, and EOF close" {
     let sidecar = @sidecar.spawn(group)
     defer sidecar.close()
 
-    inspect(sidecar.hello().abi_version, content="1")
-    let lib_path = example_plugin_path(sidecar.hello())
+    inspect(sidecar.info().abi_version, content="1")
+    let lib_path = example_plugin_path(sidecar.info())
     let library = sidecar.load(lib_path)
 
     // 1. echo (write_out)
@@ -86,7 +86,7 @@ async test "sidecar concurrent out-of-order calls" {
     let sidecar = @sidecar.spawn(group)
     defer sidecar.close()
 
-    let library = sidecar.load(example_plugin_path(sidecar.hello()))
+    let library = sidecar.load(example_plugin_path(sidecar.info()))
     let slow_fn = library.find("slow_echo")
     let completion_order : Array[String] = []
 
@@ -129,7 +129,7 @@ async test "sidecar standalone open without TaskGroup and timeout cancellation" 
   let sidecar = @sidecar.open()
   defer sidecar.close()
 
-  let library = sidecar.load(example_plugin_path(sidecar.hello()))
+  let library = sidecar.load(example_plugin_path(sidecar.info()))
   let echo_fn = library.find("echo")
   let slow_fn = library.find("slow_echo")
 
@@ -155,28 +155,17 @@ async test "sidecar standalone open without TaskGroup and timeout cancellation" 
 }
 
 ///|
-async test "embedded materialize_artifact decompresses and hits cache" {
-  // Compress with @gzip.Encoder so we round-trip real gzip bytes
-  let (r, w) = @io.pipe()
-  let gz = @async.with_task_group(group => {
-    group.spawn_bg(() => {
-      defer w.close()
-      let enc = @gzip.Encoder(w)
-      enc.write(b"hello embedded sidecar")
-      enc.end()
-    })
-    defer r.close()
-    r.read_all().binary()
-  })
+async test "embedded artifact materialize decompresses and hits cache" {
+  let gz = @gzip.compress(b"hello embedded sidecar"[:])
   let art = @sidecar.EmbeddedArtifact::new(
     filename="sample.txt",
     sha256="deadbeef0123456789abcdef",
     gzip_bytes=gz,
   )
-  let p1 = @sidecar.materialize_artifact(name="sidecar-test", art)
-  let p2 = @sidecar.materialize_artifact(name="sidecar-test", art)
+  let p1 = art.materialize(name="sidecar-test")
+  let p2 = art.materialize(name="sidecar-test")
   inspect(p1 == p2, content="true")
-  let content = @fs.read_file(p1).text()
+  let content = @fs.read_text(p1)
   inspect(content, content="hello embedded sidecar")
   let plat = @sidecar.host_platform()
   assert_true(plat.contains("-"))

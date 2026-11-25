@@ -2,30 +2,16 @@
 package "tonyfettes/sidecar"
 
 import {
-  "moonbitlang/async",
+  "moonbitlang/core/async",
   "moonbitlang/core/debug",
 }
 
 // Values
-pub const ABI_VERSION : UInt32 = 1
-
-pub const DEFAULT_MAX_FRAME_SIZE : UInt32 = 16777216
-
-pub const HEADER_LEN : Int32 = 12
-
-pub const PROTOCOL_VERSION : Byte = b'\x01'
-
-pub const TOKEN_LEN : Int32 = 32
-
 pub async fn host_platform() -> String
-
-pub async fn materialize_artifact(name~ : String, EmbeddedArtifact, executable? : Bool) -> String
-
-pub async fn materialize_platform(name~ : String, Map[String, EmbeddedArtifact], executable? : Bool) -> String
 
 pub async fn open(executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32) -> Sidecar
 
-pub async fn[X] spawn(@async.TaskGroup[X], executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
+pub async fn spawn(@async.TaskGroup, executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
 
 // Errors
 #derive(Eq, @debug.Debug)
@@ -39,16 +25,18 @@ pub(all) suberror SidecarError {
 
 // Types and methods
 type EmbeddedArtifact
-pub fn EmbeddedArtifact::filename(Self) -> String
+pub async fn EmbeddedArtifact::materialize(Self, name~ : String, executable? : Bool) -> String
 pub fn EmbeddedArtifact::new(filename~ : String, sha256~ : String, gzip_bytes~ : Bytes) -> Self
-pub fn EmbeddedArtifact::sha256(Self) -> String
 
 type Function
 pub async fn Function::call(Self, BytesView) -> Bytes
 
+type Library
+pub async fn Library::find(Self, String) -> Function
+pub async fn Library::unload(Self) -> Unit
+
 #derive(Eq, @debug.Debug)
-pub struct HelloInfo {
-  token : Bytes
+pub struct ServerInfo {
   abi_version : UInt32
   max_frame_size : UInt32
   os : String
@@ -56,28 +44,9 @@ pub struct HelloInfo {
   lib_ext : String
 }
 
-type Library
-pub async fn Library::find(Self, String) -> Function
-pub async fn Library::unload(Self) -> Unit
-
-#derive(Eq, @debug.Debug)
-pub(all) enum Op {
-  Hello
-  Load
-  Loaded
-  Unload
-  Unloaded
-  Find
-  Found
-  Call
-  Called
-  Cancel
-  Error
-}
-
 type Sidecar
 pub fn Sidecar::close(Self) -> Unit
-pub fn Sidecar::hello(Self) -> HelloInfo
+pub fn Sidecar::info(Self) -> ServerInfo
 pub async fn Sidecar::load(Self, String) -> Library
 pub async fn Sidecar::load_embedded(Self, name~ : String, Map[String, EmbeddedArtifact]) -> Library
 pub fn Sidecar::pid(Self) -> Int32

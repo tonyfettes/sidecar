@@ -17,16 +17,6 @@ pub fn EmbeddedArtifact::new(
 }
 
 ///|
-pub fn EmbeddedArtifact::filename(self : EmbeddedArtifact) -> String {
-  self.filename
-}
-
-///|
-pub fn EmbeddedArtifact::sha256(self : EmbeddedArtifact) -> String {
-  self.sha256
-}
-
-///|
 let cached_host_platform : Ref[String?] = Ref(None)
 
 ///|
@@ -37,10 +27,14 @@ pub async fn host_platform() -> String {
   if cached_host_platform.val is Some(p) {
     return p
   }
-  let os = match @async.platform {
-    Linux => "linux"
-    MacOS => "macos"
-    Windows => "windows"
+  let os = if @async.platform is Linux {
+    "linux"
+  } else if @async.platform is MacOS {
+    "macos"
+  } else if @async.platform is Windows {
+    "windows"
+  } else {
+    "unknown"
   }
   let arch = match @async.platform {
     Windows =>
@@ -49,11 +43,16 @@ pub async fn host_platform() -> String {
         _ => "x86_64"
       }
     _ => {
-      let (exit_code, out) = @process.collect_stdout("uname", ["-m"])
-      if exit_code != 0 {
+      let res = @process.run(
+        "uname",
+        ["-m"],
+        stdout=Collect,
+        accepted_exit_code=_ => true,
+      )
+      if res.exit_code != 0 {
         "unknown"
       } else {
-        match out.text().trim().to_owned() {
+        match res.stdout_text().trim().to_owned() {
           "arm64" | "aarch64" => "aarch64"
           "x86_64" | "amd64" => "x86_64"
           other => other
@@ -122,69 +121,50 @@ fn short_hash(sha256 : String) -> String {
 }
 
 ///|
-/// Decompress `artifact` into a content-addressed cache path
+/// Decompress `self` into a content-addressed cache path
 /// (`<cache_root>/<name>/<sha256[:16]>/<filename>`) using atomic temp-file +
 /// rename, and return its path.
 ///
 /// Subsequent calls for the same `(name, sha256, filename)` reuse the cached
 /// file directly without decompressing again.
-pub async fn materialize_artifact(
+pub async fn EmbeddedArtifact::materialize(
+  self : EmbeddedArtifact,
   name~ : String,
-  artifact : EmbeddedArtifact,
   executable? : Bool = false,
 ) -> String {
   let cache_root = resolve_cache_root()
   let target_dir = join_path(
     join_path(cache_root, name),
-    short_hash(artifact.sha256),
+    short_hash(self.sha256),
   )
-  let target_path = join_path(target_dir, artifact.filename)
+  let target_path = join_path(target_dir, self.filename)
 
   if @fs.exists(target_path) {
     return target_path
   }
 
-  @fs.mkdir(target_dir, recursive=true, allow_exist=true)
+  @fs.mkdir(target_dir, recursive=true, allow_existing=true)
 
+  let raw = @gzip.decompress(self.gzip_bytes[:])
   let (_, suffix) = generate_token()
   let tmp_path = "\{target_path}.tmp.\{suffix[:12]}"
   let perm = if executable { 0o755 } else { 0o644 }
 
   {
-    errdefer @async.protect_from_cancel(() => {
-      @fs.remove(tmp_path) catch {
-        _ => ()
-      }
-    })
-    let reader = @io.MemoryReader(w => w.write(artifact.gzip_bytes))
-    defer reader.close()
-    let decoder = @gzip.Decoder(reader)
-    let file = @fs.open(
+    errdefer @fs.remove(tmp_path, allow_missing=true)
+    @fs.write_binary(
       tmp_path,
-      mode=@fs.WriteOnly,
+      raw[:],
       create_mode=@fs.CreateOrTruncate,
       permission=perm,
     )
-    defer file.close()
-    file.write_reader(decoder)
-  }
-
-  if executable && !(@async.platform is Windows) {
-    @fs.chmod(tmp_path, 0o755)
-  }
-
-  {
-    errdefer @async.protect_from_cancel(() => {
-      @fs.remove(tmp_path) catch {
-        _ => ()
-      }
-    })
+    if executable && !(@async.platform is Windows) {
+      @fs.chmod(tmp_path, 0o755)
+    }
     try @fs.rename(tmp_path, target_path, replace=true) catch {
       err =>
         if @fs.exists(target_path) {
-          @fs.remove(tmp_path) catch {
-            _ => ()
-          }
+          @fs.remove(tmp_path, allow_missing=true)
           return target_path
         } else {
           raise err
@@ -198,16 +178,14 @@ pub async fn materialize_artifact(
 }
 
 ///|
-/// Select the embedded artifact matching `host_platform()`, materialize it
-/// into the content-addressed cache, and return its path.
-pub async fn materialize_platform(
+async fn materialize_platform(
   name~ : String,
   artifacts : Map[String, EmbeddedArtifact],
   executable? : Bool = false,
 ) -> String {
   let key = host_platform()
   match artifacts.get(key) {
-    Some(artifact) => materialize_artifact(name~, artifact, executable~)
+    Some(artifact) => artifact.materialize(name~, executable~)
     None =>
       raise UnsupportedPlatform(
         "no embedded '\{name}' artifact for host platform '\{key}'",

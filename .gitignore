@@ -1,4 +1,5 @@
 /_build/
+/scripts/_build/
 /.mooncakes/
 /target/
 /server/.zig-cache/

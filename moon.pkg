@@ -1,12 +1,11 @@
 import {
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/gzip",
-  "moonbitlang/async/io",
-  "moonbitlang/async/process",
-  "moonbitlang/async/socket",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/process",
+  "moonbitlang/core/async/socket",
   "moonbitlang/core/buffer",
+  "moonbitlang/core/compress/gzip",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/env",
@@ -16,3 +15,14 @@ import {
 supported_targets = "+native+wasm"
 
 formatter(ignore: [ "embedded_server.generated.mbt" ])
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/process",
+    "moonbitlang/core/async/socket",
+    "moonbitlang/core/compress/gzip",
+  ],
+)

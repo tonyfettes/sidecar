@@ -8,12 +8,12 @@ priv enum WaitSignal {
 ///|
 priv enum ChildHandle {
   Managed(@process.Process)
-  Orphan(Int)
+  Orphan(@process.OrphanProcess)
 }
 
 ///|
 struct Sidecar {
-  hello : HelloInfo
+  info : ServerInfo
   conn : @socket.Tcp
   child : ChildHandle
   write_mutex : @async.Mutex
@@ -38,10 +38,9 @@ struct Function {
 }
 
 ///|
-/// Return the handshake metadata reported by the sidecar server (`os`, `arch`,
-/// `lib_ext`, `abi_version`, `max_frame_size`).
-pub fn Sidecar::hello(self : Sidecar) -> HelloInfo {
-  self.hello
+/// Return platform and capability metadata reported by the sidecar server.
+pub fn Sidecar::info(self : Sidecar) -> ServerInfo {
+  self.info
 }
 
 ///|
@@ -49,7 +48,7 @@ pub fn Sidecar::hello(self : Sidecar) -> HelloInfo {
 pub fn Sidecar::pid(self : Sidecar) -> Int {
   match self.child {
     Managed(proc) => proc.pid
-    Orphan(pid) => pid
+    Orphan(proc) => proc.pid
   }
 }
 
@@ -89,7 +88,7 @@ async fn accept_handshake(
   listener : @socket.TcpServer,
   expected_token : Bytes,
   startup_timeout_ms : Int,
-) -> (@socket.Tcp, HelloInfo) {
+) -> (@socket.Tcp, ServerInfo) {
   @async.with_timeout(startup_timeout_ms, () => {
     let (conn, _) = listener.accept()
     errdefer conn.close()
@@ -110,10 +109,12 @@ async fn accept_handshake(
     if hello.token != expected_token {
       raise HandshakeFailed("authentication token mismatch")
     }
-    if hello.abi_version != ABI_VERSION {
-      raise HandshakeFailed("unsupported ABI version: \{hello.abi_version}")
+    if hello.info.abi_version != ABI_VERSION {
+      raise HandshakeFailed(
+        "unsupported ABI version: \{hello.info.abi_version}",
+      )
     }
-    (conn, hello)
+    (conn, hello.info)
   })
 }
 
@@ -128,8 +129,8 @@ async fn accept_handshake(
 /// libraries, and exits with status 0. The task group waits up to
 /// `shutdown_timeout_ms` for clean exit before falling back to a termination
 /// signal.
-pub async fn[X] spawn(
-  group : @async.TaskGroup[X],
+pub async fn spawn(
+  group : @async.TaskGroup,
   executable? : String,
   extra_env? : Map[String, String],
   startup_timeout_ms? : Int = 5000,
@@ -139,7 +140,7 @@ pub async fn[X] spawn(
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-  let port = listener.addr.port()
+  let port = listener.addr.port
   let env_map = build_env_map(extra_env, token_hex)
 
   let close_on_cancel : Ref[(() -> Unit)?] = Ref(None)
@@ -162,14 +163,14 @@ pub async fn[X] spawn(
     no_wait=true,
   )
 
-  let (conn, hello) = {
+  let (conn, info) = {
     defer listener.close()
     errdefer child.cancel()
     accept_handshake(listener, expected_token, startup_timeout_ms)
   }
 
   let sidecar : Sidecar = {
-    hello,
+    info,
     conn,
     child: Managed(child),
     write_mutex: @async.Mutex(),
@@ -187,8 +188,7 @@ pub async fn[X] spawn(
 /// Open a standalone Zig sidecar server not tied to a `@async.TaskGroup`.
 ///
 /// The caller is responsible for calling `sidecar.close()` and `sidecar.wait()`
-/// to cleanly shut down and reap the child process. Useful for resource APIs
-/// (such as `Tty::open()`) that return a handle outliving any single task group.
+/// to cleanly shut down and reap the child process.
 pub async fn open(
   executable? : String,
   extra_env? : Map[String, String],
@@ -198,10 +198,10 @@ pub async fn open(
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
-  let port = listener.addr.port()
+  let port = listener.addr.port
   let env_map = build_env_map(extra_env, token_hex)
 
-  let pid = {
+  let proc = {
     errdefer listener.close()
     @process.spawn_orphan(
       exe,
@@ -211,20 +211,21 @@ pub async fn open(
     )
   }
 
-  let (conn, hello) = {
+  let (conn, info) = {
     defer listener.close()
     errdefer @async.protect_from_cancel(() => {
-      let _ = @async.with_timeout_opt(2000, () => @process.wait_pid(pid)) catch {
+      let _ = @async.with_timeout_opt(2000, () => proc.wait()) catch {
         _ => None
       }
+      proc.close()
     })
     accept_handshake(listener, expected_token, startup_timeout_ms)
   }
 
   {
-    hello,
+    info,
     conn,
-    child: Orphan(pid),
+    child: Orphan(proc),
     write_mutex: @async.Mutex(),
     pending: Map([]),
     next_req_id: 1U,
@@ -238,7 +239,7 @@ pub async fn open(
 async fn Sidecar::read_one_frame(self : Sidecar) -> Frame {
   let raw_hdr = self.conn.read_exactly(HEADER_LEN)
   let hdr = decode_header(raw_hdr[:])
-  if hdr.length > self.hello.max_frame_size {
+  if hdr.length > self.info.max_frame_size {
     raise ProtocolError("response frame exceeds max_frame_size")
   }
   let payload = if hdr.length > 0U {
@@ -312,7 +313,7 @@ async fn Sidecar::send_and_wait(
   {
     self.write_mutex.acquire()
     defer self.write_mutex.release()
-    self.conn.write(wire)
+    self.conn.write(wire[:])
   }
 
   // Leader-Follower demultiplexing: no background coroutine is required.
@@ -439,11 +440,12 @@ pub fn Sidecar::close(self : Sidecar) -> Unit {
 pub async fn Sidecar::wait(self : Sidecar) -> Int {
   match self.child {
     Managed(proc) => proc.wait()
-    Orphan(pid) =>
+    Orphan(proc) =>
       match self.orphan_exit {
         Some(code) => code
         None => {
-          let code = @process.wait_pid(pid)
+          let code = proc.wait()
+          proc.close()
           self.orphan_exit = Some(code)
           code
         }
