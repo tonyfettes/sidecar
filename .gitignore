@@ -1,0 +1,6 @@
+/_build/
+/.mooncakes/
+/target/
+/server/.zig-cache/
+/server/zig-out/
+/server/.zig-global-cache/

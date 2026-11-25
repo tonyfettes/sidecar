@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/async/aqueue",
+  "moonbitlang/async/process",
+  "moonbitlang/async/socket",
+  "moonbitlang/core/buffer",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/random",
+}
+
+supported_targets = "+native+wasm"
