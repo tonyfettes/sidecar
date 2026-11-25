@@ -18,11 +18,9 @@ fn u32le_bytes(v : UInt) -> Bytes {
 }
 
 ///|
-fn parse_u32le(b : Bytes) -> UInt {
-  b[0].to_uint() |
-  (b[1].to_uint() << 8) |
-  (b[2].to_uint() << 16) |
-  (b[3].to_uint() << 24)
+fn parse_u32le(b : Bytes) -> UInt raise {
+  guard b[:] is [u32le(v)] else { fail("expected 4 bytes") }
+  v
 }
 
 ///|

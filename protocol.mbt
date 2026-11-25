@@ -122,22 +122,6 @@ priv struct Frame {
 }
 
 ///|
-fn read_u16le(data : BytesView, offset : Int) -> UInt16 {
-  let b0 = data[offset].to_uint()
-  let b1 = data[offset + 1].to_uint()
-  (b0 | (b1 << 8)).to_uint16()
-}
-
-///|
-fn read_u32le(data : BytesView, offset : Int) -> UInt {
-  let b0 = data[offset].to_uint()
-  let b1 = data[offset + 1].to_uint()
-  let b2 = data[offset + 2].to_uint()
-  let b3 = data[offset + 3].to_uint()
-  b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
-}
-
-///|
 fn write_u16le(buf : @buffer.Buffer, v : UInt16) -> Unit {
   let u = v.to_uint()
   buf.write_byte((u & 0xFFU).to_byte())
@@ -190,62 +174,60 @@ fn encode_frame_with_u32_prefix(
 
 ///|
 fn decode_header(raw : BytesView) -> FrameHeader raise SidecarError {
-  if raw.length() != HEADER_LEN {
-    raise MalformedFrame
+  match raw {
+    [ver, op_byte, u16le(_), u32le(req_id), u32le(length)] => {
+      if ver != PROTOCOL_VERSION {
+        raise UnsupportedProtocolVersion(expected=PROTOCOL_VERSION, actual=ver)
+      }
+      let op = match Op::from_byte(op_byte) {
+        Some(op) => op
+        None => raise UnknownOpcode(op_byte)
+      }
+      { op, req_id, length }
+    }
+    _ => raise MalformedFrame
   }
-  if raw[0] != PROTOCOL_VERSION {
-    raise UnsupportedProtocolVersion(expected=PROTOCOL_VERSION, actual=raw[0])
+}
+
+///|
+fn read_len_prefixed_utf8(
+  data : BytesView,
+) -> (String, BytesView) raise SidecarError {
+  match data {
+    [u16le(len), .. rest] => {
+      let n = len.reinterpret_as_int()
+      if rest.length() < n {
+        raise MalformedFrame
+      }
+      (@utf8.decode_lossy(rest[:n]), rest[n:])
+    }
+    _ => raise MalformedFrame
   }
-  let op = match Op::from_byte(raw[1]) {
-    Some(op) => op
-    None => raise UnknownOpcode(raw[1])
-  }
-  let _ = read_u16le(raw, 2)
-  let req_id = read_u32le(raw, 4)
-  let length = read_u32le(raw, 8)
-  { op, req_id, length }
 }
 
 ///|
 fn decode_hello(payload : BytesView) -> HelloPayload raise SidecarError {
-  if payload.length() < TOKEN_LEN + 14 {
+  if payload.length() < TOKEN_LEN {
     raise MalformedFrame
   }
-  let token = payload[0:TOKEN_LEN].to_owned()
-  let abi_version = read_u32le(payload, TOKEN_LEN)
-  let max_frame_size = read_u32le(payload, TOKEN_LEN + 4)
-  let mut pos = TOKEN_LEN + 8
-
-  fn read_str(p : BytesView, off : Int) -> (String, Int) raise SidecarError {
-    if off + 2 > p.length() {
-      raise MalformedFrame
+  let token = payload[:TOKEN_LEN].to_owned()
+  match payload[TOKEN_LEN:] {
+    [u32le(abi_version), u32le(max_frame_size), .. rest] => {
+      let (os, rest) = read_len_prefixed_utf8(rest)
+      let (arch, rest) = read_len_prefixed_utf8(rest)
+      let (lib_ext, _) = read_len_prefixed_utf8(rest)
+      { token, info: { abi_version, max_frame_size, os, arch, lib_ext } }
     }
-    let len = read_u16le(p, off).to_int()
-    let start = off + 2
-    if start + len > p.length() {
-      raise MalformedFrame
-    }
-    let s = @utf8.decode_lossy(p[start:start + len])
-    (s, start + len)
+    _ => raise MalformedFrame
   }
-
-  let (os, next1) = read_str(payload, pos)
-  pos = next1
-  let (arch, next2) = read_str(payload, pos)
-  pos = next2
-  let (lib_ext, _) = read_str(payload, pos)
-
-  { token, info: { abi_version, max_frame_size, os, arch, lib_ext } }
 }
 
 ///|
 fn decode_error(payload : BytesView) -> SidecarError {
-  if payload.length() < 2 {
-    MalformedFrame
-  } else {
-    let code = read_u16le(payload, 0)
-    let message = @utf8.decode_lossy(payload[2:])
-    RemoteError(code~, message~)
+  match payload {
+    [u16le(code), .. msg] =>
+      RemoteError(code=code.to_uint16(), message=@utf8.decode_lossy(msg))
+    _ => MalformedFrame
   }
 }
 

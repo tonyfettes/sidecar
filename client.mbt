@@ -402,10 +402,9 @@ pub async fn Sidecar::load_path(
 ) -> Library {
   let path_bytes = @utf8.encode(library_path)
   let resp = self.request(Load, path_bytes[:])
-  if resp.header.op != Loaded || resp.payload.length() != 4 {
+  guard resp.header.op == Loaded && resp.payload[:] is [u32le(id)] else {
     raise MalformedFrame
   }
-  let id = read_u32le(resp.payload[:], 0)
   { sidecar: self, id, unloaded: false }
 }
 
@@ -472,10 +471,9 @@ pub async fn Library::find(self : Library, symbol : String) -> Function {
   }
   let sym_bytes = @utf8.encode(symbol)
   let resp = self.sidecar.request_with_u32_prefix(Find, self.id, sym_bytes[:])
-  if resp.header.op != Found || resp.payload.length() != 4 {
+  guard resp.header.op == Found && resp.payload[:] is [u32le(id)] else {
     raise MalformedFrame
   }
-  let id = read_u32le(resp.payload[:], 0)
   { sidecar: self.sidecar, id }
 }
 
