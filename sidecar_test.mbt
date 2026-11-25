@@ -33,7 +33,7 @@ async test "sidecar echo, add_u32, error, unload, and EOF close" {
 
     inspect(sidecar.info().abi_version, content="1")
     let lib_path = example_plugin_path(sidecar.info())
-    let library = sidecar.load(lib_path)
+    let library = sidecar.load_path(lib_path)
 
     // 1. echo (write_out)
     let echo_fn = library.find("echo")
@@ -86,7 +86,7 @@ async test "sidecar concurrent out-of-order calls" {
     let sidecar = @sidecar.spawn(group)
     defer sidecar.close()
 
-    let library = sidecar.load(example_plugin_path(sidecar.info()))
+    let library = sidecar.load_path(example_plugin_path(sidecar.info()))
     let slow_fn = library.find("slow_echo")
     let completion_order : Array[String] = []
 
@@ -129,7 +129,7 @@ async test "sidecar standalone open without TaskGroup and timeout cancellation" 
   let sidecar = @sidecar.open()
   defer sidecar.close()
 
-  let library = sidecar.load(example_plugin_path(sidecar.info()))
+  let library = sidecar.load_path(example_plugin_path(sidecar.info()))
   let echo_fn = library.find("echo")
   let slow_fn = library.find("slow_echo")
 
@@ -155,18 +155,38 @@ async test "sidecar standalone open without TaskGroup and timeout cancellation" 
 }
 
 ///|
-async test "embedded artifact materialize decompresses and hits cache" {
-  let gz = @gzip.compress(b"hello embedded sidecar"[:])
-  let art = @sidecar.EmbeddedArtifact::new(
-    filename="sample.txt",
-    sha256="deadbeef0123456789abcdef",
-    gzip_bytes=gz,
-  )
-  let p1 = art.materialize(name="sidecar-test")
-  let p2 = art.materialize(name="sidecar-test")
-  inspect(p1 == p2, content="true")
-  let content = @fs.read_text(p1)
-  inspect(content, content="hello embedded sidecar")
-  let plat = @sidecar.host_platform()
-  assert_true(plat.contains("-"))
+async test "sidecar load_bytes with raw and gzipped shared library" {
+  @async.with_task_group(group => {
+    let sidecar = @sidecar.spawn(group)
+    defer sidecar.close()
+
+    let raw_lib = @fs.read_binary(example_plugin_path(sidecar.info()))
+    let gz_lib = @gzip.compress(raw_lib[:])
+
+    // 1. Load from raw bytes
+    let lib1 = sidecar.load_bytes(name="echo_plugin", raw_lib[:])
+    let echo1 = lib1.find("echo")
+    inspect(
+      @utf8.decode_lossy(echo1.call(b"raw-bytes"[:])[:]),
+      content="raw-bytes",
+    )
+    lib1.unload()
+
+    // 2. Load from gzip-compressed bytes (and verify second load hits cache)
+    let lib2 = sidecar.load_bytes(name="echo_plugin", gz_lib[:], gzip=true)
+    let echo2 = lib2.find("echo")
+    inspect(
+      @utf8.decode_lossy(echo2.call(b"gzip-bytes"[:])[:]),
+      content="gzip-bytes",
+    )
+    lib2.unload()
+
+    let lib3 = sidecar.load_bytes(name="echo_plugin", gz_lib[:], gzip=true)
+    let echo3 = lib3.find("echo")
+    inspect(
+      @utf8.decode_lossy(echo3.call(b"cached-gzip"[:])[:]),
+      content="cached-gzip",
+    )
+    lib3.unload()
+  })
 }

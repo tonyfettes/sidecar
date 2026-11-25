@@ -169,21 +169,13 @@ uint16_t my_func(
 2. `SIDECAR_SERVER` environment variable
 3. Embedded `sidecar-server` for `@sidecar.host_platform()`, decompressed on first use into `<cache_root>/sidecar-server/<sha256[:16]>/sidecar-server[.exe]` (override cache location with `SIDECAR_CACHE_DIR`)
 
-### 7.2 Reusing Embedding for Downstream Plugins
+### 7.2 Loading Embedded Plugins from Bytes
 
-Downstream MoonBit libraries can reuse the same pipeline for their own native plugins:
+Downstream MoonBit libraries can embed their platform-specific shared libraries (optionally gzip-compressed) as plain `Bytes`, select the right bytes using `sidecar.info().os` and `sidecar.info().arch`, and load directly via `Sidecar::load_bytes`:
 
-1. Cross-compile your C/Zig plugin into `<dist>/<platform>/<libname>` (e.g., `macos-aarch64/libmy_plugin.dylib`).
-2. Generate a MoonBit embedding file with:
-   ```sh
-   moon run --target native scripts/embed_server.mbtx -- \
-     --dist-dir path/to/dist \
-     --out embedded_plugin.generated.mbt \
-     --map-name embedded_plugins \
-     --type-prefix @sidecar.
-   ```
-3. Load directly from MoonBit:
-   ```moonbit
-   let lib = sidecar.load_embedded(name="my-plugin", embedded_plugins)
-   ```
+```moonbit
+let lib = sidecar.load_bytes(name="my_plugin", plugin_gz_bytes[:], gzip=true)
+```
+
+`load_bytes` computes the SHA-256 cache key internally, appends the server's native extension (`dylib` / `so` / `dll`), decompresses on cache miss, and reuses the cached file on subsequent runs.
 

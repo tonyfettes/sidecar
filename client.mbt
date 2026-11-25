@@ -59,12 +59,7 @@ async fn resolve_executable(executable : String?) -> String {
   }
   match @env.get_env_vars().get("SIDECAR_SERVER") {
     Some(p) if !p.is_empty() => p
-    _ =>
-      materialize_platform(
-        name="sidecar-server",
-        embedded_servers,
-        executable=true,
-      )
+    _ => materialize_embedded_server()
   }
 }
 
@@ -400,7 +395,10 @@ async fn Sidecar::request_with_u32_prefix(
 
 ///|
 /// Load a shared library at `library_path` into the sidecar process.
-pub async fn Sidecar::load(self : Sidecar, library_path : String) -> Library {
+pub async fn Sidecar::load_path(
+  self : Sidecar,
+  library_path : String,
+) -> Library {
   let path_bytes = @utf8.encode(library_path)
   let resp = self.request(Load, path_bytes[:])
   if resp.header.op != Loaded || resp.payload.length() != 4 {
@@ -411,15 +409,27 @@ pub async fn Sidecar::load(self : Sidecar, library_path : String) -> Library {
 }
 
 ///|
-/// Materialize a platform-specific embedded plugin shared library into the
-/// content-addressed cache and load it into the sidecar process.
-pub async fn Sidecar::load_embedded(
+/// Load a shared library from raw bytes (or gzip-compressed bytes when
+/// `gzip=true`). The bytes are content-addressed by SHA-256 and cached on disk
+/// using the server's native shared-library extension (`dylib` / `so` / `dll`).
+pub async fn Sidecar::load_bytes(
   self : Sidecar,
   name~ : String,
-  artifacts : Map[String, EmbeddedArtifact],
+  bytes : BytesView,
+  gzip? : Bool = false,
 ) -> Library {
-  let path = materialize_platform(name~, artifacts, executable=false)
-  self.load(path)
+  let hash = sha256_hex(bytes)
+  let cache_key = if gzip { "gz-\{hash}" } else { hash }
+  let filename = library_filename(name, self.info.lib_ext)
+  let path = materialize_cached(
+    name~,
+    filename~,
+    cache_key~,
+    bytes,
+    gzip~,
+    executable=false,
+  )
+  self.load_path(path)
 }
 
 ///|
