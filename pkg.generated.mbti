@@ -12,12 +12,18 @@ pub async fn open(executable? : String, extra_env? : Map[String, String], startu
 pub async fn spawn(@async.TaskGroup, executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
 
 // Errors
+#non_exhaustive
 #derive(Eq, @debug.Debug)
 pub(all) suberror SidecarError {
-  ProtocolError(String)
-  HandshakeFailed(String)
   ConnectionClosed
-  UnsupportedPlatform(String)
+  LibraryUnloaded
+  UnsupportedPlatform(platform~ : String)
+  AuthFailed
+  UnsupportedProtocolVersion(expected~ : Byte, actual~ : Byte)
+  UnsupportedAbiVersion(expected~ : UInt32, actual~ : UInt32)
+  FrameTooLarge(length~ : UInt32, max~ : UInt32)
+  UnknownOpcode(Byte)
+  MalformedFrame
   RemoteError(code~ : UInt16, message~ : String)
 }
 

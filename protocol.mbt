@@ -30,23 +30,6 @@ priv enum Op {
 }
 
 ///|
-fn Op::name(self : Op) -> String {
-  match self {
-    Hello => "HELLO"
-    Load => "LOAD"
-    Loaded => "LOADED"
-    Unload => "UNLOAD"
-    Unloaded => "UNLOADED"
-    Find => "FIND"
-    Found => "FOUND"
-    Call => "CALL"
-    Called => "CALLED"
-    Cancel => "CANCEL"
-    Error => "ERROR"
-  }
-}
-
-///|
 fn Op::to_byte(self : Op) -> Byte {
   match self {
     Hello => b'\x01'
@@ -82,12 +65,28 @@ fn Op::from_byte(b : Byte) -> Op? {
 }
 
 ///|
+#non_exhaustive
 #derive(Eq, @debug.Debug)
 pub(all) suberror SidecarError {
-  ProtocolError(String)
-  HandshakeFailed(String)
+  /// Sidecar TCP connection was closed or the server exited unexpectedly.
   ConnectionClosed
-  UnsupportedPlatform(String)
+  /// Attempted to use a `Library` handle after `Library::unload()`.
+  LibraryUnloaded
+  /// No embedded `sidecar-server` binary is available for `platform`.
+  UnsupportedPlatform(platform~ : String)
+  /// Handshake one-time authentication token did not match.
+  AuthFailed
+  /// Peer reported an unsupported wire protocol version.
+  UnsupportedProtocolVersion(expected~ : Byte, actual~ : Byte)
+  /// Peer reported an unsupported C plugin ABI version.
+  UnsupportedAbiVersion(expected~ : UInt, actual~ : UInt)
+  /// Received frame length exceeded the negotiated limit.
+  FrameTooLarge(length~ : UInt, max~ : UInt)
+  /// Received an unknown frame opcode byte.
+  UnknownOpcode(Byte)
+  /// Frame structure was truncated, corrupted, or unexpected for the request.
+  MalformedFrame
+  /// Error returned by the sidecar server (0x0001..0x0FFF) or plugin (0x1000..0xFFFF).
   RemoteError(code~ : UInt16, message~ : String)
 }
 
@@ -192,14 +191,14 @@ fn encode_frame_with_u32_prefix(
 ///|
 fn decode_header(raw : BytesView) -> FrameHeader raise SidecarError {
   if raw.length() != HEADER_LEN {
-    raise ProtocolError("header length mismatch")
+    raise MalformedFrame
   }
   if raw[0] != PROTOCOL_VERSION {
-    raise ProtocolError("unsupported protocol version: \{raw[0]}")
+    raise UnsupportedProtocolVersion(expected=PROTOCOL_VERSION, actual=raw[0])
   }
   let op = match Op::from_byte(raw[1]) {
     Some(op) => op
-    None => raise ProtocolError("unknown opcode: \{raw[1]}")
+    None => raise UnknownOpcode(raw[1])
   }
   let _ = read_u16le(raw, 2)
   let req_id = read_u32le(raw, 4)
@@ -210,7 +209,7 @@ fn decode_header(raw : BytesView) -> FrameHeader raise SidecarError {
 ///|
 fn decode_hello(payload : BytesView) -> HelloPayload raise SidecarError {
   if payload.length() < TOKEN_LEN + 14 {
-    raise HandshakeFailed("HELLO payload too short")
+    raise MalformedFrame
   }
   let token = payload[0:TOKEN_LEN].to_owned()
   let abi_version = read_u32le(payload, TOKEN_LEN)
@@ -219,12 +218,12 @@ fn decode_hello(payload : BytesView) -> HelloPayload raise SidecarError {
 
   fn read_str(p : BytesView, off : Int) -> (String, Int) raise SidecarError {
     if off + 2 > p.length() {
-      raise HandshakeFailed("truncated HELLO string length")
+      raise MalformedFrame
     }
     let len = read_u16le(p, off).to_int()
     let start = off + 2
     if start + len > p.length() {
-      raise HandshakeFailed("truncated HELLO string bytes")
+      raise MalformedFrame
     }
     let s = @utf8.decode_lossy(p[start:start + len])
     (s, start + len)
@@ -242,7 +241,7 @@ fn decode_hello(payload : BytesView) -> HelloPayload raise SidecarError {
 ///|
 fn decode_error(payload : BytesView) -> SidecarError {
   if payload.length() < 2 {
-    ProtocolError("malformed ERROR frame")
+    MalformedFrame
   } else {
     let code = read_u16le(payload, 0)
     let message = @utf8.decode_lossy(payload[2:])

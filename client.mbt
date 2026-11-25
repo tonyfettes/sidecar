@@ -90,10 +90,10 @@ async fn accept_handshake(
     let raw_hdr = conn.read_exactly(HEADER_LEN)
     let hdr = decode_header(raw_hdr[:])
     if hdr.op != Hello || hdr.req_id != 0U {
-      raise HandshakeFailed("expected HELLO frame as first message")
+      raise MalformedFrame
     }
     if hdr.length > DEFAULT_MAX_FRAME_SIZE {
-      raise HandshakeFailed("HELLO payload too large")
+      raise FrameTooLarge(length=hdr.length, max=DEFAULT_MAX_FRAME_SIZE)
     }
     let payload = if hdr.length > 0U {
       conn.read_exactly(hdr.length.reinterpret_as_int())
@@ -102,11 +102,12 @@ async fn accept_handshake(
     }
     let hello = decode_hello(payload[:])
     if hello.token != expected_token {
-      raise HandshakeFailed("authentication token mismatch")
+      raise AuthFailed
     }
     if hello.info.abi_version != ABI_VERSION {
-      raise HandshakeFailed(
-        "unsupported ABI version: \{hello.info.abi_version}",
+      raise UnsupportedAbiVersion(
+        expected=ABI_VERSION,
+        actual=hello.info.abi_version,
       )
     }
     (conn, hello.info)
@@ -235,7 +236,7 @@ async fn Sidecar::read_one_frame(self : Sidecar) -> Frame {
   let raw_hdr = self.conn.read_exactly(HEADER_LEN)
   let hdr = decode_header(raw_hdr[:])
   if hdr.length > self.info.max_frame_size {
-    raise ProtocolError("response frame exceeds max_frame_size")
+    raise FrameTooLarge(length=hdr.length, max=self.info.max_frame_size)
   }
   let payload = if hdr.length > 0U {
     @async.protect_from_cancel(() => {
@@ -402,7 +403,7 @@ pub async fn Sidecar::load_path(
   let path_bytes = @utf8.encode(library_path)
   let resp = self.request(Load, path_bytes[:])
   if resp.header.op != Loaded || resp.payload.length() != 4 {
-    raise ProtocolError("unexpected response to LOAD: \{resp.header.op.name()}")
+    raise MalformedFrame
   }
   let id = read_u32le(resp.payload[:], 0)
   { sidecar: self, id, unloaded: false }
@@ -467,12 +468,12 @@ pub async fn Sidecar::wait(self : Sidecar) -> Int {
 /// Resolve an exported symbol matching `sidecar_fn_t` from this library.
 pub async fn Library::find(self : Library, symbol : String) -> Function {
   if self.unloaded {
-    raise ProtocolError("library already unloaded")
+    raise LibraryUnloaded
   }
   let sym_bytes = @utf8.encode(symbol)
   let resp = self.sidecar.request_with_u32_prefix(Find, self.id, sym_bytes[:])
   if resp.header.op != Found || resp.payload.length() != 4 {
-    raise ProtocolError("unexpected response to FIND: \{resp.header.op.name()}")
+    raise MalformedFrame
   }
   let id = read_u32le(resp.payload[:], 0)
   { sidecar: self.sidecar, id }
@@ -489,9 +490,7 @@ pub async fn Library::unload(self : Library) -> Unit {
   write_u32le(buf, self.id)
   let resp = self.sidecar.request(Unload, buf.to_bytes()[:])
   if resp.header.op != Unloaded {
-    raise ProtocolError(
-      "unexpected response to UNLOAD: \{resp.header.op.name()}",
-    )
+    raise MalformedFrame
   }
   self.unloaded = true
 }
@@ -502,7 +501,7 @@ pub async fn Library::unload(self : Library) -> Unit {
 pub async fn Function::call(self : Function, input : BytesView) -> Bytes {
   let resp = self.sidecar.request_with_u32_prefix(Call, self.id, input)
   if resp.header.op != Called {
-    raise ProtocolError("unexpected response to CALL: \{resp.header.op.name()}")
+    raise MalformedFrame
   }
   resp.payload
 }

@@ -290,10 +290,7 @@ async fn materialize_embedded_server() -> String {
         gzip=true,
         executable=true,
       )
-    None =>
-      raise UnsupportedPlatform(
-        "no embedded 'sidecar-server' binary for host platform '\{key}'",
-      )
+    None => raise UnsupportedPlatform(platform=key)
   }
 }
 

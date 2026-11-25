@@ -63,7 +63,7 @@ async test "sidecar echo, add_u32, error, unload, and EOF close" {
     }
     inspect(err_seen, content="4660:plugin failure: boom")
 
-    // 4. Unload invalidates existing function handles
+    // 4. Unload invalidates both existing function handles and future finds
     library.unload()
     let after_unload = try {
       let _ = echo_fn.call(b"x"[:])
@@ -73,6 +73,14 @@ async test "sidecar echo, add_u32, error, unload, and EOF close" {
       other => "other: \{other}"
     }
     inspect(after_unload, content="code=6")
+    let find_after_unload = try {
+      let _ = library.find("echo")
+      "unexpected ok"
+    } catch {
+      @sidecar.LibraryUnloaded => "unloaded"
+      other => "other: \{other}"
+    }
+    inspect(find_after_unload, content="unloaded")
 
     // 5. Closing the TCP transport triggers clean exit (code 0)
     sidecar.close()
