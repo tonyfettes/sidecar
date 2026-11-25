@@ -1,4 +1,4 @@
-name = "haoxiang/sidecar"
+name = "tonyfettes/sidecar"
 version = "0.1.0"
 
 import {

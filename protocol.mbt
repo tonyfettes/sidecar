@@ -87,6 +87,7 @@ pub(all) suberror SidecarError {
   ProtocolError(String)
   HandshakeFailed(String)
   ConnectionClosed
+  UnsupportedPlatform(String)
   RemoteError(code~ : UInt16, message~ : String)
 }
 

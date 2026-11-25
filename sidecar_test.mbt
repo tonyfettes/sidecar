@@ -153,3 +153,31 @@ async test "sidecar standalone open without TaskGroup and timeout cancellation" 
   sidecar.close()
   inspect(sidecar.wait(), content="0")
 }
+
+///|
+async test "embedded materialize_artifact decompresses and hits cache" {
+  // Compress with @gzip.Encoder so we round-trip real gzip bytes
+  let (r, w) = @io.pipe()
+  let gz = @async.with_task_group(group => {
+    group.spawn_bg(() => {
+      defer w.close()
+      let enc = @gzip.Encoder(w)
+      enc.write(b"hello embedded sidecar")
+      enc.end()
+    })
+    defer r.close()
+    r.read_all().binary()
+  })
+  let art = @sidecar.EmbeddedArtifact::new(
+    filename="sample.txt",
+    sha256="deadbeef0123456789abcdef",
+    gzip_bytes=gz,
+  )
+  let p1 = @sidecar.materialize_artifact(name="sidecar-test", art)
+  let p2 = @sidecar.materialize_artifact(name="sidecar-test", art)
+  inspect(p1 == p2, content="true")
+  let content = @fs.read_file(p1).text()
+  inspect(content, content="hello embedded sidecar")
+  let plat = @sidecar.host_platform()
+  assert_true(plat.contains("-"))
+}

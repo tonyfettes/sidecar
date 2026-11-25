@@ -156,3 +156,34 @@ uint16_t my_func(
   - `void sidecar_lib_deinit(void)`: If exported, called once during `UNLOAD` or on transport close (TCP EOF) after all in-flight calls drain and before `dlclose`/`FreeLibrary`.
 - **Thread safety**:
   - Because `CALL` requests run concurrently on worker threads, plugins that share mutable global state across calls must synchronize access internally.
+
+---
+
+## 7. Multi-Platform Embedding & Content-Addressed Caching
+
+`tonyfettes/sidecar` embeds stripped, gzip-compressed `sidecar-server` binaries for 5 platforms (`macos-aarch64`, `macos-x86_64`, `linux-x86_64`, `linux-aarch64`, `windows-x86_64`) in `embedded_server.generated.mbt`.
+
+### 7.1 Server Resolution Priority
+
+1. Explicit `executable` argument passed to `@sidecar.spawn` / `@sidecar.open`
+2. `SIDECAR_SERVER` environment variable
+3. Embedded `sidecar-server` for `@sidecar.host_platform()`, decompressed on first use into `<cache_root>/sidecar-server/<sha256[:16]>/sidecar-server[.exe]` (override cache location with `SIDECAR_CACHE_DIR`)
+
+### 7.2 Reusing Embedding for Downstream Plugins
+
+Downstream MoonBit libraries can reuse the same pipeline for their own native plugins:
+
+1. Cross-compile your C/Zig plugin into `<dist>/<platform>/<libname>` (e.g., `macos-aarch64/libmy_plugin.dylib`).
+2. Generate a MoonBit embedding file with:
+   ```sh
+   python3 scripts/embed_server.py \
+     --dist-dir path/to/dist \
+     --out embedded_plugin.generated.mbt \
+     --map-name embedded_plugins \
+     --type-prefix @sidecar.
+   ```
+3. Load directly from MoonBit:
+   ```moonbit
+   let lib = sidecar.load_embedded(name="my-plugin", embedded_plugins)
+   ```
+

@@ -54,10 +54,18 @@ pub fn Sidecar::pid(self : Sidecar) -> Int {
 }
 
 ///|
-fn resolve_default_executable() -> String {
+async fn resolve_executable(executable : String?) -> String {
+  if executable is Some(p) && !p.is_empty() {
+    return p
+  }
   match @env.get_env_vars().get("SIDECAR_SERVER") {
     Some(p) if !p.is_empty() => p
-    _ => "server/zig-out/bin/sidecar-server"
+    _ =>
+      materialize_platform(
+        name="sidecar-server",
+        embedded_servers,
+        executable=true,
+      )
   }
 }
 
@@ -127,10 +135,7 @@ pub async fn[X] spawn(
   startup_timeout_ms? : Int = 5000,
   shutdown_timeout_ms? : Int = 2000,
 ) -> Sidecar {
-  let exe = match executable {
-    Some(p) => p
-    None => resolve_default_executable()
-  }
+  let exe = resolve_executable(executable)
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -189,10 +194,7 @@ pub async fn open(
   extra_env? : Map[String, String],
   startup_timeout_ms? : Int = 5000,
 ) -> Sidecar {
-  let exe = match executable {
-    Some(p) => p
-    None => resolve_default_executable()
-  }
+  let exe = resolve_executable(executable)
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -405,6 +407,18 @@ pub async fn Sidecar::load(self : Sidecar, library_path : String) -> Library {
   }
   let id = read_u32le(resp.payload[:], 0)
   { sidecar: self, id, unloaded: false }
+}
+
+///|
+/// Materialize a platform-specific embedded plugin shared library into the
+/// content-addressed cache and load it into the sidecar process.
+pub async fn Sidecar::load_embedded(
+  self : Sidecar,
+  name~ : String,
+  artifacts : Map[String, EmbeddedArtifact],
+) -> Library {
+  let path = materialize_platform(name~, artifacts, executable=false)
+  self.load(path)
 }
 
 ///|

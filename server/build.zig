@@ -111,6 +111,7 @@ fn addServerExecutable(
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .strip = (optimize != .Debug),
         // Link libc on POSIX so dlopen/dlsym/dlclose use the system dynamic linker
         // (static musl does not support dlopen of external shared libraries).
         .link_libc = (os_tag != .windows),

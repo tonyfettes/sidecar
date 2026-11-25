@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "haoxiang/sidecar"
+package "tonyfettes/sidecar"
 
 import {
   "moonbitlang/async",
@@ -17,6 +17,12 @@ pub const PROTOCOL_VERSION : Byte = b'\x01'
 
 pub const TOKEN_LEN : Int32 = 32
 
+pub async fn host_platform() -> String
+
+pub async fn materialize_artifact(name~ : String, EmbeddedArtifact, executable? : Bool) -> String
+
+pub async fn materialize_platform(name~ : String, Map[String, EmbeddedArtifact], executable? : Bool) -> String
+
 pub async fn open(executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32) -> Sidecar
 
 pub async fn[X] spawn(@async.TaskGroup[X], executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
@@ -27,10 +33,16 @@ pub(all) suberror SidecarError {
   ProtocolError(String)
   HandshakeFailed(String)
   ConnectionClosed
+  UnsupportedPlatform(String)
   RemoteError(code~ : UInt16, message~ : String)
 }
 
 // Types and methods
+type EmbeddedArtifact
+pub fn EmbeddedArtifact::filename(Self) -> String
+pub fn EmbeddedArtifact::new(filename~ : String, sha256~ : String, gzip_bytes~ : Bytes) -> Self
+pub fn EmbeddedArtifact::sha256(Self) -> String
+
 type Function
 pub async fn Function::call(Self, BytesView) -> Bytes
 
@@ -67,6 +79,7 @@ type Sidecar
 pub fn Sidecar::close(Self) -> Unit
 pub fn Sidecar::hello(Self) -> HelloInfo
 pub async fn Sidecar::load(Self, String) -> Library
+pub async fn Sidecar::load_embedded(Self, name~ : String, Map[String, EmbeddedArtifact]) -> Library
 pub fn Sidecar::pid(Self) -> Int32
 pub async fn Sidecar::wait(Self) -> Int32
 
