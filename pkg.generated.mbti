@@ -7,9 +7,9 @@ import {
 }
 
 // Values
-pub async fn open(executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32) -> Sidecar
+pub async fn open(extra_env? : Map[String, String], startup_timeout_ms? : Int32) -> Sidecar
 
-pub async fn spawn(@async.TaskGroup, executable? : String, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
+pub async fn spawn(@async.TaskGroup, extra_env? : Map[String, String], startup_timeout_ms? : Int32, shutdown_timeout_ms? : Int32) -> Sidecar
 
 // Errors
 #non_exhaustive
@@ -47,7 +47,7 @@ pub struct ServerInfo {
 type Sidecar
 pub fn Sidecar::close(Self) -> Unit
 pub fn Sidecar::info(Self) -> ServerInfo
-pub async fn Sidecar::load_bytes(Self, name~ : String, BytesView, gzip? : Bool) -> Library
+pub async fn Sidecar::load_bytes(Self, BytesView, gzip? : Bool) -> Library
 pub async fn Sidecar::load_path(Self, String) -> Library
 pub fn Sidecar::pid(Self) -> Int32
 pub async fn Sidecar::wait(Self) -> Int32

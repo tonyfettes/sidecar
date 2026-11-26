@@ -165,16 +165,15 @@ uint16_t my_func(
 
 ### 7.1 Server Resolution Priority
 
-1. Explicit `executable` argument passed to `@sidecar.spawn` / `@sidecar.open`
-2. `SIDECAR_SERVER` environment variable
-3. Embedded `sidecar-server` for `@sidecar.host_platform()`, decompressed on first use into `<cache_root>/sidecar-server/<sha256[:16]>/sidecar-server[.exe]` (override cache location with `SIDECAR_CACHE_DIR`)
+1. `SIDECAR_SERVER` environment variable (escape hatch for local builds or custom platforms)
+2. Embedded `sidecar-server` for the host platform, decompressed on first use into `<cache_root>/sidecar-server/<sha256[:16]>/sidecar-server[.exe]` (override cache location with `SIDECAR_CACHE_DIR`)
 
 ### 7.2 Loading Embedded Plugins from Bytes
 
 Downstream MoonBit libraries can embed their platform-specific shared libraries (optionally gzip-compressed) as plain `Bytes`, select the right bytes using `sidecar.info().os` and `sidecar.info().arch`, and load directly via `Sidecar::load_bytes`:
 
 ```moonbit
-let lib = sidecar.load_bytes(name="my_plugin", plugin_gz_bytes[:], gzip=true)
+let lib = sidecar.load_bytes(plugin_gz_bytes[:], gzip=true)
 ```
 
 `load_bytes` computes the SHA-256 cache key internally, appends the server's native extension (`dylib` / `so` / `dll`), decompresses on cache miss, and reuses the cached file on subsequent runs.

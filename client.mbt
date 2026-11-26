@@ -53,10 +53,7 @@ pub fn Sidecar::pid(self : Sidecar) -> Int {
 }
 
 ///|
-async fn resolve_executable(executable : String?) -> String {
-  if executable is Some(p) && !p.is_empty() {
-    return p
-  }
+async fn resolve_executable() -> String {
   match @env.get_env_vars().get("SIDECAR_SERVER") {
     Some(p) if !p.is_empty() => p
     _ => materialize_embedded_server()
@@ -127,12 +124,11 @@ async fn accept_handshake(
 /// signal.
 pub async fn spawn(
   group : @async.TaskGroup,
-  executable? : String,
   extra_env? : Map[String, String],
   startup_timeout_ms? : Int = 5000,
   shutdown_timeout_ms? : Int = 2000,
 ) -> Sidecar {
-  let exe = resolve_executable(executable)
+  let exe = resolve_executable()
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -186,11 +182,10 @@ pub async fn spawn(
 /// The caller is responsible for calling `sidecar.close()` and `sidecar.wait()`
 /// to cleanly shut down and reap the child process.
 pub async fn open(
-  executable? : String,
   extra_env? : Map[String, String],
   startup_timeout_ms? : Int = 5000,
 ) -> Sidecar {
-  let exe = resolve_executable(executable)
+  let exe = resolve_executable()
   let (expected_token, token_hex) = generate_token()
 
   let listener = @socket.TcpServer(@socket.Addr::parse("127.0.0.1:0"))
@@ -414,15 +409,14 @@ pub async fn Sidecar::load_path(
 /// using the server's native shared-library extension (`dylib` / `so` / `dll`).
 pub async fn Sidecar::load_bytes(
   self : Sidecar,
-  name~ : String,
   bytes : BytesView,
   gzip? : Bool = false,
 ) -> Library {
   let hash = sha256_hex(bytes)
   let cache_key = if gzip { "gz-\{hash}" } else { hash }
-  let filename = library_filename(name, self.info.lib_ext)
+  let filename = "\{short_hash(cache_key)}.\{self.info.lib_ext}"
   let path = materialize_cached(
-    name~,
+    name="libs",
     filename~,
     cache_key~,
     bytes,

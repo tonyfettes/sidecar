@@ -293,15 +293,3 @@ async fn materialize_embedded_server() -> String {
     None => raise UnsupportedPlatform(platform=key)
   }
 }
-
-///|
-fn library_filename(name : String, lib_ext : String) -> String {
-  let suffix = ".\{lib_ext}"
-  if name.has_suffix(suffix) {
-    name
-  } else if lib_ext == "dll" {
-    "\{name}.dll"
-  } else {
-    "lib\{name}.\{lib_ext}"
-  }
-}

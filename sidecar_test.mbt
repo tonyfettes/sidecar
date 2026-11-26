@@ -169,8 +169,8 @@ async test "sidecar load_bytes with raw and gzipped shared library" {
     let raw_lib = @fs.read_binary(example_plugin_path(sidecar.info()))
     let gz_lib = @gzip.compress(raw_lib[:])
 
-    // 1. Load from raw bytes
-    let lib1 = sidecar.load_bytes(name="echo_plugin", raw_lib[:])
+    // 1. Load from raw bytes (anonymous / content-addressed)
+    let lib1 = sidecar.load_bytes(raw_lib[:])
     let echo1 = lib1.find("echo")
     inspect(
       @utf8.decode_lossy(echo1.call(b"raw-bytes"[:])[:]),
@@ -178,8 +178,8 @@ async test "sidecar load_bytes with raw and gzipped shared library" {
     )
     lib1.unload()
 
-    // 2. Load from gzip-compressed bytes (and verify second load hits cache)
-    let lib2 = sidecar.load_bytes(name="echo_plugin", gz_lib[:], gzip=true)
+    // 2. Load from gzip-compressed bytes (and verify cache hit)
+    let lib2 = sidecar.load_bytes(gz_lib[:], gzip=true)
     let echo2 = lib2.find("echo")
     inspect(
       @utf8.decode_lossy(echo2.call(b"gzip-bytes"[:])[:]),
@@ -187,7 +187,7 @@ async test "sidecar load_bytes with raw and gzipped shared library" {
     )
     lib2.unload()
 
-    let lib3 = sidecar.load_bytes(name="echo_plugin", gz_lib[:], gzip=true)
+    let lib3 = sidecar.load_bytes(gz_lib[:], gzip=true)
     let echo3 = lib3.find("echo")
     inspect(
       @utf8.decode_lossy(echo3.call(b"cached-gzip"[:])[:]),
